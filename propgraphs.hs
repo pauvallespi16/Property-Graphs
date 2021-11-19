@@ -5,13 +5,11 @@ import Data.List
 import Data.Maybe
 
 {-
-------------------------- LLENGUATGES DE PROGRAMACIÓ -------------------------
-------                                                                  ------
----                      · Grup:         11                                ---
---                       · Alumne:       Pau Vallespí                       --
----                      · Professor:    Jordi Petit                       ---
-------                                                                  ------
-------------------------------------------------------------------------------
+######################### LLENGUATGES DE PROGRAMACIÓ #########################
+                            · Grup:         11                               
+                            · Alumne:       Pau Vallespí                       
+                            · Professor:    Jordi Petit                       
+##############################################################################
 
 
 A property graph G is a tuple (V, E, ρ, λ, σ):
@@ -39,9 +37,9 @@ E: is a finite set of edges such that V and E have no elements in common.
         · Date
 -}
 
-------------------------------------------------------------------------------
---                            DATA DECLARATION                              --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                            DATA DECLARATION                             
+-- ########################################################################
 data Graph    = Graph [Node] [Edge]
 data Node     = Node String Label [Property]
 data Edge     = Edge String String String Label [Property]
@@ -51,9 +49,9 @@ type Date     = String
 type Label    = String
 
 
-------------------------------------------------------------------------------
---                            SHOW INSTANCES                                --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                            SHOW INSTANCES                                
+-- ########################################################################
 instance Show Graph where
     show (Graph [] [])             = "\n"
     show (Graph [] (e:edges))      = show e ++ "\n" ++ show (Graph [] edges)
@@ -95,9 +93,9 @@ instance Eq Edge where
         | otherwise = False
 
 
-------------------------------------------------------------------------------
---                              OUTPUT FUNCTIONS                            --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                              OUTPUT FUNCTIONS                        
+-- ########################################################################
 -- Auxiliary function to print nodes and edges from a graph
 printList :: Show a => [a] -> IO ()
 printList []     = do return ()
@@ -106,9 +104,9 @@ printList (x:xs) = do
     printList xs
 
 
-------------------------------------------------------------------------------
---                             AUXILIARY FUNCTIONS                          --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                             AUXILIARY FUNCTIONS                   
+-- ########################################################################
 -- Returns the next line of a list of strings
 nextLine :: [String] -> [String]
 nextLine = tail
@@ -185,23 +183,10 @@ findProperty name (p:ps)
     | getPropName p == name = Just p
     | otherwise             = findProperty name ps
 
-{-
--- Given the name and the value of a property, return a new property with
--- equal name and value
-newProperty :: String -> String -> Property
-newProperty name value
-    | value == "Int"     = Property name value (I 0)
-    | value == "Double"  = Property name value (D 0)
-    | value == "String"  = Property name value (S "")
-    | value == "Bool"    = Property name value (B False)
-    | value == "Date"    = Property name value (T "")
-    | otherwise          = Property name value (U '⊥')
--}
 
-
-------------------------------------------------------------------------------
---                           GETTERS, SETTERS                               --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                              GETTERS, SETTERS                     
+-- ########################################################################
 -- Returns the name of the node
 getNodeName :: Node -> String
 getNodeName (Node n _ _ )    = n
@@ -237,10 +222,10 @@ setPropData  d (Property name dataType _)
     | otherwise             = Property name dataType (U '⊥')
 
 
-------------------------------------------------------------------------------
---                           AUXILIARY FUNCTIONS                            --
---                        TO MAKE THE CODE LEGIBLE                          --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                          AUXILIARY FUNCTIONS                    
+--                       TO MAKE THE CODE LEGIBLE                    
+-- ########################################################################
 -- Adds a property to the node
 addNodeProperty :: Property -> Node -> Node
 addNodeProperty p (Node n l []) = Node n l [p]
@@ -274,9 +259,9 @@ includeProperties prop node ns edge es = (nodes, edges)
             | otherwise   = es
 
 
-------------------------------------------------------------------------------
---                             INTERPRETING FILES                           --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                              INTERPRETING FILES                       
+-- ########################################################################
 -- Interprets the contents of propFile where each line is composed of 2
 -- elements, the first one represents the name of the property and the
 -- second one represents the type of the property
@@ -290,22 +275,22 @@ interpretPropFile line = Property name value (U '⊥') : interpretPropFile (next
 -- Interprets the contents of rhoFile where each line is composed of 3
 -- elements, the first one represents the name of the edge and the
 -- other two elements represent names of nodes
-interpretRhoFile :: [String] -> ([Node], [Edge])
-interpretRhoFile []    = ([], [])
-interpretRhoFile line  = (ns ++ newNodes, es ++ [newEdge])
+interpretRhoFile :: Graph -> [String] -> Graph
+interpretRhoFile graph []    = graph
+interpretRhoFile (Graph ns es) line  = interpretRhoFile graph (nextLine line)
     where
-        (ns, es)       = interpretRhoFile (prevLine line)
-        (e, n1, n2)    = getThreeElements lineWords
-        lineWords      = words $ last line
-        newEdge        = Edge e n1 n2 "" []
-        newNodes       = elemRepetead ns (Node n1 "" []) ++ elemRepetead ns (Node n2 "" [])
+        (e, n1, n2)          = getThreeElements lineWords
+        (newNode1, newNode2) = (Node n1 "" [], Node n2 "" [])
+        (newEdge, newNodes)  = (Edge e n1 n2 "" [], ns ++ elemRepetead ns newNode1 ++ elemRepetead ns newNode2)
+        graph                = addEdge (Graph newNodes es) newEdge (Node n1 "" []) (Node n2 "" [])
+        lineWords            = words $ head line
 
 -- Interprets the contents of lambdaFile where each line is composed of 2
 -- elements, the first one represents the name of the node and the
 -- second one represents the label of the node
-interpretLambdaFile :: [Node] -> [Edge] -> [String] -> ([Node], [Edge])
-interpretLambdaFile ns es []   = (ns, es)
-interpretLambdaFile ns es line = interpretLambdaFile nodes edges (nextLine line)
+interpretLambdaFile :: Graph -> [String] -> Graph
+interpretLambdaFile graph []   = graph
+interpretLambdaFile (Graph ns es) line = interpretLambdaFile (Graph nodes edges) (nextLine line)
     where
         (name, label)  = getTwoElements lineWords
         (node, edge)   = (findNode name ns, findEdge name es)
@@ -316,9 +301,9 @@ interpretLambdaFile ns es line = interpretLambdaFile nodes edges (nextLine line)
 -- elements, the first one represents the name of the node and the
 -- second one represents the name of the property, and the third 
 -- element represents the value of the property
-interpretSigmaFile :: [Node] -> [Edge] -> [Property] -> [String] -> ([Node], [Edge])
-interpretSigmaFile ns es _ []    = (ns, es)
-interpretSigmaFile ns es ps line = interpretSigmaFile nodes edges ps (nextLine line)
+interpretSigmaFile :: Graph -> [Property] -> [String] -> Graph
+interpretSigmaFile graph _ []    = graph
+interpretSigmaFile (Graph ns es) ps line = interpretSigmaFile (Graph nodes edges) ps (nextLine line)
     where
         (name, p, val) = getThreeElements lineWords
         (node, edge)   = (findNode name ns, findEdge name es)
@@ -326,22 +311,26 @@ interpretSigmaFile ns es ps line = interpretSigmaFile nodes edges ps (nextLine l
         updatedProp    = setPropData val $ fromJust $ findProperty p ps
         lineWords      = words $ head line
 
-------------------------------------------------------------------------------
---                        PROPERTY GRAPHS IN HASKELL                        --
-------------------------------------------------------------------------------
+-- ########################################################################
+--                          PROPERTY GRAPHS IN HASKELL
+-- ########################################################################
 -- Populates a graph with the given files
 populate :: String -> String -> String -> String -> Graph
-populate propFile rhoFile lambdaFile sigmaFile = Graph nodes edges
+populate propFile rhoFile lambdaFile sigmaFile = finalGraph
     where
+        emptyGraph     = Graph [] []
         props          = interpretPropFile (lines propFile)
-        (ns1, es1)     = interpretRhoFile  (lines rhoFile)
-        (ns2, es2)     = interpretLambdaFile ns1 es1 (lines lambdaFile)
-        (nodes, edges) = interpretSigmaFile ns2 es2 props (lines sigmaFile)
+        graph1         = interpretRhoFile emptyGraph (lines rhoFile)
+        graph2         = interpretLambdaFile graph1 (lines lambdaFile)
+        finalGraph     = interpretSigmaFile graph2 props (lines sigmaFile)
 
 -- Adds an edge to the graph
 -- addEdge: PG × E × V × V → PG
+-- FALTA COMPROVAR QUE NO HI SIGUI
 addEdge :: Graph -> Edge -> Node -> Node -> Graph
-addEdge (Graph nodes edges) edge node1 node2 = Graph nodes (edges ++ [edge])
+addEdge (Graph nodes edges) (Edge e _ _ l p) (Node n1 _ _) (Node n2 _ _) = Graph nodes (edges ++ [newEdge])
+    where
+        newEdge = Edge e n1 n2 l p
 
 -- defVprop: PG × V × P(Prop×Val) → PG
 
@@ -362,9 +351,11 @@ showGraph (Graph v e)= do
     printList v
     printList e
     putStrLn ""
-------------------------------------------------------------------------------
---                                   MAIN                                   --
-------------------------------------------------------------------------------
+
+
+-- ########################################################################
+--                                   MAIN                                  
+-- ########################################################################
 main = do
     {-
     propFileName   <- getLine 
@@ -378,5 +369,5 @@ main = do
     sigmaFile      <- readFile "sigmaFile.pg" --readFile sigmaFileName
 
     let propGraph = populate propFile rhoFile lambdaFile sigmaFile
-    let graph2 = addEdge propGraph (Edge "eee" "p" "a" "paulex" []) (Node "p" "" []) (Node "a" "" [])
-    print graph2
+    --let graph2 = addEdge propGraph (Edge "eee" "p" "a" "paulex" []) (Node "p" "" []) (Node "a" "" [])
+    print propGraph
