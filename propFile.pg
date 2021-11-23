@@ -1,5 +1,5 @@
 location    String
-since Date
+since  Date
 date    Date
 nlikes    Int
 content    String

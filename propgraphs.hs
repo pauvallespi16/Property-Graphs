@@ -1,11 +1,10 @@
-import System.IO
-import Control.Monad
-import Data.Char
-import Data.List
-import Data.Maybe
-import Data.Either
-import GHC.Natural (Natural)
-
+import System.IO (char8, utf8)
+import Control.Monad (when)
+import Data.Char (toLower)
+import Data.List ()
+import Data.Maybe ( fromJust, isJust, isNothing )
+import Data.Either ( fromLeft, isLeft, fromRight )
+import Data.Text.Internal.Unsafe (inlinePerformIO)
 {-
 ######################### LLENGUATGES DE PROGRAMACIÓ #########################
                             · Grup:      11                               
@@ -13,6 +12,8 @@ import GHC.Natural (Natural)
                             · Professor: Jordi Petit                       
 ##############################################################################
 
+
+################################ DEFINITIONS ################################
 
 A property graph G is a tuple (V, E, ρ, λ, σ):
 V: is a finite set of vertices (or nodes).
@@ -37,16 +38,82 @@ E: is a finite set of edges such that V and E have no elements in common.
         · String
         · Boolean
         · Date
+
+#############################################################################
+
+
+
+################################ DECISIONS ################################
+
+1. A Graph will be represented by a list of nodes, edges and properties.
+
+2. Each node is composed of a string, which represents its name, a label that
+   the user can define, and a list of properties.
+
+3. Each edge is composed of a string representing its name, two string
+   representing the names of the nodes it is connecting, a label that the
+   user can define and a list of properties.
+
+4. Each property is composed of two strings representing the name of the property
+   and its type (respectively), and a DataType, which I will explain later.
+
+5. A data type represents the basic types in Haskell, including the Undefined in 
+   which I will use the symbol ⊥. Each data type will be represented by a letter:
+    → I : Integer
+    → D : Double
+    → S : String
+    → B : Bool
+    → T : Date
+
+6. A date will be represented by a string and not 3 numbers, to simplify the 
+   input reading.    
+
+7. A label will be represented by a string, representing its name.
+
+8. If a function is meant to be called by the user (the query ones), then
+   when a node or an edge is asked as a parameter, a string representing its 
+   name will be asked instead to ease its use.
+
+9. Although the input may be correct, I never assume it is, and given the case
+   the user writes incorrect input, my code will return either the same graph
+   or an error message, depending on the function.
+
+10. Every property name will be converted to lower case to avoid cases in which
+    by mistake the user writes a property that exists but uppercase. 
+    i.e : the property birthday exists, but the user writes birthDay, thanks to 
+    this section, the program will consider the same, because it turns the property
+    given by the user to lowercase (turning it into "birthday")
+
+11. Every function will be clearly documented before its code.
+
+12. When reading input from the user, only strings will be asked unless anything 
+    specific is necessary (such as properties of an edge, numbers, etc). 
+    Besides, users won't have to introduce anything related to the graph 
+    when being asked for input
+
+13. When being asked for a function (in the case of kHops), the user will only have
+    two options: equal and not equal. That is because from a console it is very
+    difficult to define a function, and therefore it would make the process harder
+    for the user
+
+14. Although the functions defVprop and defEprop have the functionalities to add
+    multiple properties, the user only has the possibility to add one at a time.
+
+###########################################################################
 -}
+
+
+
 
 -- ########################################################################
 --                            DATA DECLARATION                             
 -- ########################################################################
-data Graph    = Graph [Node] [Edge]
+data Graph    = Graph [Node] [Edge] [Property]
 data Node     = Node String Label [Property]
 data Edge     = Edge String String String Label [Property]
 data Property = Property String String DataType
-data DataType = I Int | D Double | S String | B Bool | T Date | U Char
+data DataType = I Int | D Double | S String | B Bool | T Date | U String
+    deriving Eq
 type Date     = String
 type Label    = String
 
@@ -54,17 +121,20 @@ type Label    = String
 -- ########################################################################
 --                            SHOW INSTANCES                                
 -- ########################################################################
+-- Show instance for Graph
 instance Show Graph where
-    show (Graph [] [])             = "\n"
-    show (Graph [] (e:edges))      = show e ++ "\n" ++ show (Graph [] edges)
-    show (Graph (n:nodes) edges)   = show n ++ "\n" ++ show (Graph nodes edges)
+    show (Graph [] [] _)            = "\n"
+    show (Graph [] (e:edges) ps)    = show e ++ "\n" ++ show (Graph [] edges ps)
+    show (Graph (n:nodes) edges ps) = show n ++ "\n" ++ show (Graph nodes edges ps)
 
+-- Show instance for Node
 instance Show Node where
     show (Node "" ""  [])          = ""
     show (Node "" "" [p])          = show p
     show (Node "" "" (p:ps))       = show p ++ "," ++ show (Node "" "" ps)
     show (Node name label props)   = name ++ "[" ++ label ++ "]" ++ "{" ++ show (Node "" "" props) ++ "}"
 
+-- Show instance for Edge
 instance Show Edge where
     show (Edge "" "" "" "" [])     = ""
     show (Edge "" "" "" "" [p])    = show p
@@ -73,16 +143,18 @@ instance Show Edge where
         "(" ++ node1 ++ ")" ++ "−" ++ name ++ "[" ++ label ++ "]" ++ "->" ++
         "(" ++ node2 ++ ")" ++ "{" ++ show (Edge "" "" "" "" props) ++ "}"
 
+-- Show instance for Property
 instance Show Property where
     show (Property name _ dataType) = "(" ++ name ++ ", " ++ show dataType ++ ")"
 
+-- Show instance for DataType
 instance Show DataType where
     show (I value) = show value
     show (D value) = show value
     show (S value) = value
     show (B value) = show value
     show (T value) = value
-    show (U value) = show value
+    show (U value) = value
 
 instance Eq Node where
     Node n1 _ _ == Node n2 _ _
@@ -99,12 +171,13 @@ instance Eq Property where
         | p1 == p2  = True
         | otherwise = False
 
+
 -- ########################################################################
 --                              OUTPUT FUNCTIONS                        
 -- ########################################################################
 -- Auxiliary function to print nodes and edges from a graph
 printList :: Show a => [a] -> IO ()
-printList []     = do return ()
+printList []     = return ()
 printList (x:xs) = do
     print x
     printList xs
@@ -113,11 +186,16 @@ printList (x:xs) = do
 -- ########################################################################
 --                             AUXILIARY FUNCTIONS                   
 -- ########################################################################
--- Returns the next line of a list of strings
+-- Converts the string to lower case. This is done to avoid errors when reading
+-- the input files which contain the properties, because there can be errors
+lC :: String -> String
+lC word = [toLower c | c <- word]
+
+-- Returns the same list without the first line
 nextLine :: [String] -> [String]
 nextLine = tail
 
--- Returns the previous line of a list of strings
+-- Returns the same list without the last line
 prevLine :: [String] -> [String]
 prevLine = init
 
@@ -143,19 +221,17 @@ getThreeElements s = (elem1, elem2, thirdElement s)
     where
         (elem1, elem2) = getTwoElements s
 
--- Removes the given element from the given list
-removeElem :: Eq a => a -> [a] -> [a]
-removeElem _ [] = []
-removeElem x (y:ys)
-    | x == y    = removeElem x ys
-    | otherwise = y : removeElem x ys
-
 -- Replaces the element given in the list
 replaceElem :: Eq t => t -> [t] -> [t]
 replaceElem _ [] = []
 replaceElem elem (x:xs)
     | elem == x       = elem:xs
     | otherwise       = x:replaceElem elem xs
+
+-- Removes the duplicate elements of a list
+removeDups :: (Eq a) => [a] -> [a]
+removeDups (x:xs) = x : removeDups (filter (/= x) xs)
+removeDups [] = []
 
 -- Returns an empty list if the list contains the element, otherwise
 -- it returns a list containing the element
@@ -208,6 +284,12 @@ edgeContainsLabel :: Label -> Edge -> Bool
 edgeContainsLabel label (Edge _ _ _ l _)
     | l == label   = True
     | otherwise    = False
+
+-- Auxiliary function to allow the readFile function to be called from
+-- the populate function
+fileRead :: FilePath -> String
+fileRead path =
+    inlinePerformIO $ readFile path
 
 
 -- ########################################################################
@@ -265,7 +347,7 @@ setPropData  d (Property name dataType _)
     | dataType == "String"  = Property name dataType (S d)
     | dataType == "Bool"    = Property name dataType (B (read d::Bool))
     | dataType == "Date"    = Property name dataType (T d)
-    | otherwise             = Property name dataType (U '⊥')
+    | otherwise             = Property name dataType (U "⊥")
 
 
 -- ########################################################################
@@ -284,31 +366,82 @@ addEdgeProperty p (Edge e n1 n2 l ps) = Edge e n1 n2 l (ps ++ [p])
 
 -- Auxiliary function that, by using defVLabel and defELabel, adds
 -- a label to a node, edge or both
-includeLabels :: String -> Label -> [Node] -> [Edge] -> Graph
-includeLabels name label ns es = finalGraph
+-- If the node/edge is not in the graph, the same graph is returned
+includeLabels :: String -> Label -> Graph -> Graph
+includeLabels name label (Graph ns es ps) = finalGraph
     where
-        node = findNode name ns
-        edge = findEdge name es
+        (node, edge) = (findNode name ns, findEdge name es)
+        checkVlabel  = defVlabel (Graph ns es ps) (getNodeName $ fromJust node) label
+        checkElabel  = defElabel auxGraph (getEdgeName $ fromJust edge) label
         auxGraph
-            | isJust node = fromLeft (Graph [] []) (defVlabel (Graph ns es) (fromJust node) label)
-            | otherwise   = Graph ns es
+            | isJust node && isLeft checkVlabel = fromLeft (Graph [] [] []) checkVlabel
+            | otherwise   = Graph ns es ps
         finalGraph
-            | isJust edge = fromLeft (Graph [] []) (defElabel auxGraph (fromJust edge) label)
+            | isJust edge && isLeft checkElabel = fromLeft (Graph [] [] []) checkElabel
             | otherwise   = auxGraph
 
--- Function to include the properties to the nodes and edges
-includeProperties  :: String -> Property -> [Node] -> [Edge] -> Graph
-includeProperties name prop ns es = finalGraph
+-- Auxiliary function that, by using defVprop and  defEprop, adds
+-- a property to a node, edge or both
+-- If the node/edge is not in the graph, the same graph is returned
+includeProperties  :: String -> Property -> Graph -> Graph
+includeProperties name prop (Graph ns es ps) = finalGraph
     where
-        node = findNode name ns
-        edge = findEdge name es
+        (node, edge) = (findNode name ns, findEdge name es)
         auxGraph
-            | isJust node = defVprop (Graph ns es) (fromJust node) prop
-            | otherwise   = Graph ns es
+            | isJust node = defVprop (Graph ns es ps) (getNodeName $ fromJust node) [prop]
+            | otherwise   = Graph ns es ps
         finalGraph
-            | isJust edge = defEprop auxGraph (fromJust edge) prop
+            | isJust edge = defEprop auxGraph (getEdgeName $ fromJust edge) [prop]
             | otherwise   = auxGraph
 
+-- Auxiliary function that, given a name of a node, a label, a list of names
+-- of nodes ("visited") and a list of edges, returns the names of nodes (that
+-- don't appear in "visited") directly connected with the one given, only by
+-- edges that contain the label given as a parameter
+adjacentNodesWithSameLabel :: String -> Label -> [String] -> [Edge] -> [String]
+adjacentNodesWithSameLabel _ _ _ [] = []
+adjacentNodesWithSameLabel n label visited ((Edge _ n1 n2 l _):es)
+    | n == n1 && notElem n2 visited && label == l = n2 : adjacentNodesWithSameLabel n label visited es
+    | otherwise = adjacentNodesWithSameLabel n label visited es
+
+-- Auxiliary function used for easing the legibility of sigma' in case
+-- a node has been given as input
+checkPropertiesNode :: Node -> [Property] -> [(String, DataType)]
+checkPropertiesNode _ [] = []
+checkPropertiesNode n (p:ps)
+    | nodeContainsProperty n p = (getPropName p, getPropData propNode) : checkPropertiesNode n ps
+    | otherwise = (getPropName p, U "⊥") : checkPropertiesNode n ps
+    where propNode = fromJust $ findProperty (getPropName p) $ getNodeProperties n
+
+-- Auxiliary function used for easing the legibility of sigma' in case
+-- an edge has been given as input
+checkPropertiesEdge :: Edge -> [Property] -> [(String, DataType)]
+checkPropertiesEdge _ [] = []
+checkPropertiesEdge e (p:ps)
+    | edgeContainsProperty e p = (getPropName p, getPropData propEdge) : checkPropertiesEdge e ps
+    | otherwise = (getPropName p, U "⊥") : checkPropertiesEdge e ps
+    where propEdge = fromJust $ findProperty (getPropName p) $ getEdgeProperties e
+
+-- Auxiliary function that returns the adjacent nodes to the one given as a
+-- parameter
+adjacentNodes :: String -> [Edge] -> [String]
+adjacentNodes _ [] = []
+adjacentNodes n ((Edge _ n1 n2 _ _):es)
+    | n == n1   = n2 : adjacentNodes n es
+    | otherwise = adjacentNodes n es
+
+-- Auxiliary function that, given a list of nodes returns the list of all the
+-- nodes adjacents to the ones in the list. Function used in kHops.
+findAllAdjacents :: [String] -> [Edge] -> [String]
+findAllAdjacents [] _ = []
+findAllAdjacents (n:ns) es = adjacentNodes n es ++ findAllAdjacents ns es
+
+-- The string represents a node name, the function returns true if there exists 
+-- a k-path from the node 
+kPath :: Integer -> String -> [Edge] -> [String] -> [String]
+kPath k n es nodes
+    | k == 0    = nodes
+    | otherwise = kPath (k-1) n es $ findAllAdjacents nodes es
 
 -- ########################################################################
 --                              INTERPRETING FILES                       
@@ -318,7 +451,7 @@ includeProperties name prop ns es = finalGraph
 -- second one represents the type of the property
 interpretPropFile :: [String] -> [Property]
 interpretPropFile []   = []
-interpretPropFile line = Property name value (U '⊥') : interpretPropFile (nextLine line)
+interpretPropFile line = Property (lC name) value (U "⊥") : interpretPropFile (nextLine line)
     where
         (name, value)  = getTwoElements lineWords
         lineWords      = words $ head line
@@ -328,12 +461,12 @@ interpretPropFile line = Property name value (U '⊥') : interpretPropFile (next
 -- other two elements represent names of nodes
 interpretRhoFile :: Graph -> [String] -> Graph
 interpretRhoFile graph []    = graph
-interpretRhoFile (Graph ns es) line = interpretRhoFile finalGraph (nextLine line)
+interpretRhoFile (Graph ns es ps) line = interpretRhoFile finalGraph (nextLine line)
     where
         (e, n1, n2)          = getThreeElements lineWords
         (newNode1, newNode2) = (Node n1 "" [], Node n2 "" [])
         (newEdge, newNodes)  = (Edge e n1 n2 "" [], ns ++ elemRepetead ns newNode1 ++ elemRepetead ns newNode2)
-        finalGraph           = addEdge (Graph newNodes es) newEdge (Node n1 "" []) (Node n2 "" [])
+        finalGraph           = addEdge (Graph newNodes es ps) newEdge (Node n1 "" []) (Node n2 "" [])
         lineWords            = words $ head line
 
 -- Interprets the contents of lambdaFile where each line is composed of 2
@@ -341,87 +474,134 @@ interpretRhoFile (Graph ns es) line = interpretRhoFile finalGraph (nextLine line
 -- second one represents the label of the node
 interpretLambdaFile :: Graph -> [String] -> Graph
 interpretLambdaFile graph []   = graph
-interpretLambdaFile (Graph ns es) line = interpretLambdaFile finalGraph (nextLine line)
+interpretLambdaFile (Graph ns es ps) line = interpretLambdaFile finalGraph (nextLine line)
     where
         (name, label)  = getTwoElements lineWords
-        finalGraph     = includeLabels name label ns es
+        finalGraph     = includeLabels name label $ Graph ns es ps
         lineWords      = words $ head line
 
 -- Interprets the contents of sigmaFile where each line is composed of 3
 -- elements, the first one represents the name of the node and the
 -- second one represents the name of the property, and the third 
 -- element represents the value of the property
-interpretSigmaFile :: Graph -> [Property] -> [String] -> Graph
-interpretSigmaFile graph _ []    = graph
-interpretSigmaFile (Graph ns es) ps line = interpretSigmaFile finalGraph ps (nextLine line)
+interpretSigmaFile :: Graph -> [String] -> Graph
+interpretSigmaFile graph [] = graph
+interpretSigmaFile (Graph ns es ps) line = interpretSigmaFile finalGraph (nextLine line)
     where
         (name, p, val) = getThreeElements lineWords
-        updatedProp    = setPropData val $ fromJust $ findProperty p ps
-        finalGraph     = includeProperties name updatedProp ns es
+        updatedProp    = setPropData val $ fromJust $ findProperty (lC p) ps
+        finalGraph     = includeProperties name updatedProp $ Graph ns es ps
         lineWords      = words $ head line
 
 -- ########################################################################
 --                          PROPERTY GRAPHS IN HASKELL
 -- ########################################################################
+-- populate: String × String × String × String → PG
 -- Populates a graph with the given files
 populate :: String -> String -> String -> String -> Graph
 populate propFile rhoFile lambdaFile sigmaFile = finalGraph
     where
-        props          = interpretPropFile (lines propFile)
-        graph1         = interpretRhoFile (Graph [] []) (lines rhoFile)
-        graph2         = interpretLambdaFile graph1 (lines lambdaFile)
-        finalGraph     = interpretSigmaFile graph2 props (lines sigmaFile)
+        props          = interpretPropFile $ lines $ fileRead propFile
+        graph1         = interpretRhoFile (Graph [] [] props) $ lines $ fileRead rhoFile
+        graph2         = interpretLambdaFile graph1 $ lines $ fileRead lambdaFile
+        finalGraph     = interpretSigmaFile graph2 $ lines $ fileRead sigmaFile
 
--- Adds an edge to the graph
--- addEdge: PG × E × V × V → PG findEdge :: String -> [Edge] -> Maybe Edge
+-- addEdge: PG × E × V × V → PG
+-- Given two nodes, an edge and a graph, adds an edge connecting the two nodes 
+-- to the given graph and returns the graph with the new edge included
+-- If the edge already exists or the nodes doesn't exist it returns the same graph
 addEdge :: Graph -> Edge -> Node -> Node -> Graph
-addEdge (Graph nodes edges) (Edge e _ _ l p) (Node n1 _ _) (Node n2 _ _) = Graph nodes newEdges
+addEdge (Graph nodes edges ps) (Edge e _ _ l p) (Node n1 _ _) (Node n2 _ _) = Graph nodes newEdges ps
+    where
+        (edge, node1, node2) = (findEdge e edges, findNode n1 nodes, findNode n2 nodes)
+        newEdges
+            | isJust edge || isNothing node1 || isNothing node2 = edges
+            | otherwise   = edges ++ [Edge e n1 n2 l p]
+
+-- Auxiliary function for defVprop
+defVprop' :: String -> [Property] -> [Node] -> Property -> [Node]
+defVprop' n ps nodes (Property p t dt) = newNodes
+    where
+        prop = findProperty (lC p) ps
+        node = findNode n nodes
+        newNodes
+            | isNothing node || isNothing prop || nodeContainsProperty (fromJust node) (Property (lC p) t dt) = nodes
+            | otherwise = replaceElem (addNodeProperty (Property (lC p) t dt) (fromJust node)) nodes
+
+-- defVprop: PG × V × P(Prop×Val) → PG
+-- Given a graph, a node name and a property list, adds the properties to the node
+-- and returns the graph with the updated node
+-- If the node is not in the graph, the property is already defined, the
+-- property doesn't exist or the list of properties is empty the same graph is returned
+defVprop :: Graph -> String -> [Property] -> Graph
+defVprop (Graph nodes edges ps) n [] = Graph nodes edges ps
+defVprop (Graph nodes edges ps) n [Property p t dt] = Graph (defVprop' n ps nodes prop) edges ps
+    where prop = Property p t dt
+defVprop (Graph nodes edges ps) n ((Property p t dt):props) = defVprop (Graph newNodes edges ps) n props
+    where 
+        newNodes = defVprop' n ps nodes prop
+        prop = Property p t dt
+
+-- Auxiliary function for defEprop
+defEprop' :: String -> [Property] -> [Edge] -> Property -> [Edge]
+defEprop' e ps edges (Property p t dt)= newEdges
+    where
+        prop = findProperty (lC p) ps
+        edge = findEdge e edges
+        newEdges
+            | isNothing edge || isNothing prop || edgeContainsProperty (fromJust edge) (Property (lC p) t dt) = edges
+            | otherwise = replaceElem (addEdgeProperty (Property (lC p) t dt) (fromJust edge)) edges
+
+-- defEprop: PG × E × P(Prop×Val) → PG
+-- Given a graph, an edge name and a property list, adds the properties to the node
+-- and returns the graph with the updated edge
+-- If the edge is not in the graph or the property is already defined, or the
+-- property doesn't exist or the list of properties is empty the same graph is returned
+defEprop :: Graph -> String -> [Property] -> Graph
+defEprop (Graph nodes edges ps) e [] = Graph nodes edges ps
+defEprop (Graph nodes edges ps) e [Property p t dt] = Graph nodes (defEprop' e ps edges prop) ps
+    where prop = Property p t dt
+defEprop (Graph nodes edges ps) e (Property p t dt:props) = defEprop (Graph nodes newEdges ps) e props 
+    where
+        newEdges = defEprop' e ps edges prop
+        prop = Property p t dt
+        
+-- defVlabel: PG × V × Lab → PG ∪ Error
+-- Given a graph, a node name and a label, if the node already contains a label,
+-- an error message is returned, otherwise the label is included to the node
+-- and the graph with the updated node is returned
+-- If the node is not in the graph, the same graph is returned
+defVlabel :: Graph -> String -> Label -> Either Graph String
+defVlabel (Graph nodes edges ps) n l
+    | isNothing node = Left (Graph nodes edges ps)
+    | not $ nodeContainsLabel "" $ fromJust node = Right "ERROR: Label is already defined"
+    | otherwise = Left (Graph newNodes edges ps)
+    where
+        node = findNode n nodes
+        newNodes
+            | isJust node = replaceElem (setNodeLabel l (fromJust node)) nodes
+            | otherwise   = nodes
+
+-- defElabel: PG × E × Lab → PG ∪ Error
+-- Given a graph, an edge name and a label, if the edge already contains a label,
+-- an error message is returned, otherwise the label is included to the edge
+-- and the graph with the updated edge is returned
+-- If the edge is not in the graph, the same graph is returned
+defElabel :: Graph -> String -> Label -> Either Graph String
+defElabel (Graph nodes edges ps) e l
+    | isNothing edge = Left (Graph nodes edges ps)
+    | not $ edgeContainsLabel "" $ fromJust edge = Right "ERROR: Label is already defined"
+    | otherwise = Left (Graph nodes newEdges ps)
     where
         edge = findEdge e edges
         newEdges
-            | isJust edge = edges
-            | otherwise   = edges ++ [Edge e n1 n2 l p]
+            | isJust edge = replaceElem (setEdgeLabel l (fromJust edge)) edges
+            | otherwise   = edges
 
--- defVprop: PG × V × P(Prop×Val) → PG
-defVprop :: Graph -> Node -> Property -> Graph
-defVprop (Graph nodes edges) n p = Graph newNodes edges
-    where
-        node = findNode (getNodeName n) nodes
-        newNodes
-            | nodeContainsProperty n p = nodes
-            | otherwise = replaceElem (addNodeProperty p (fromJust node)) nodes
-
--- defEprop: PG × E × P(Prop×Val) → PG
-defEprop :: Graph -> Edge -> Property -> Graph
-defEprop (Graph nodes edges) e p = Graph nodes newEdges
-    where
-        edge = findEdge (getEdgeName e) edges
-        newEdges
-            | edgeContainsProperty e p = edges
-            | otherwise = replaceElem (addEdgeProperty p (fromJust edge)) edges
-
--- defVlabel: PG × V × Lab → PG ∪ Error
-defVlabel :: Graph -> Node -> Label -> Either Graph String
-defVlabel (Graph nodes edges) n l
-    | not $ nodeContainsLabel "" $ fromJust node = Right "ERROR: Label is already defined"
-    | otherwise = Left (Graph newNodes edges)
-    where
-        node     = findNode (getNodeName n) nodes
-        newNodes = replaceElem (setNodeLabel l (fromJust node)) nodes
-
--- defElabel: PG × E × Lab → PG ∪ Error
-defElabel :: Graph -> Edge -> Label -> Either Graph String
-defElabel (Graph nodes edges) e l
-    | not $ edgeContainsLabel "" $ fromJust edge = Right "ERROR: Label is already defined"
-    | otherwise = Left (Graph nodes newEdges)
-    where
-        edge     = findEdge (getEdgeName e) edges
-        newEdges = replaceElem (setEdgeLabel l (fromJust edge)) edges
-
--- Function to print graphs
 -- showGraph: PG → (V,E,Lab,Prop,ρ,λ,σ)
+-- Function to print graphs
 showGraph :: Graph -> IO()
-showGraph (Graph v e)= do
+showGraph (Graph v e _)= do
     printList v
     printList e
     putStrLn ""
@@ -430,55 +610,361 @@ showGraph (Graph v e)= do
 -- ########################################################################
 --                    QUERYING AGAINST PROPERTY GRAPHS
 -- ########################################################################
-
--- σ: PG × (V ∪ E) → P(Prop × Val)
+-- σ': PG × (V ∪ E) → P(Prop × Val)
+-- Given a name that can represent a node or an edge, returns a tuple in which the 
+-- first element is the name of the property and the second element is the value of
+-- this property in the node/edge. If the node/edge doesn't contain this property,
+-- then ⊥ is shown
+sigma' :: Graph -> String -> [(String, DataType)]
+sigma' (Graph ns es ps) name = props
+    where
+        (node, edge) = (findNode name ns, findEdge name es)
+        props
+            | isJust node = checkPropertiesNode (fromJust node) ps
+            | isJust edge = checkPropertiesEdge (fromJust edge) ps
+            | otherwise = []
 
 -- propV: PG × Nat × Prop → P(V × Val)
-propV :: Graph -> Natural -> Property -> [(Label, DataType)]
-propV  _                0 _ = []
-propV (Graph [] _)      k p = []
-propV (Graph (n:ns) es) k p = returnValue
+-- Given a graph, a natural number "k" and a property name, returns a list containing the 
+-- first "k" nodes that have the property given
+propV :: Graph -> Integer -> String -> [(Label, DataType)]
+propV  _                   0 _    = []
+propV (Graph [] _ _)       k prop = []
+propV (Graph (n:ns) es ps) k prop = returnValue
     where
-        property = findProperty (getPropName p) (getNodeProperties n)
+        p = lC prop
+        property = findProperty p (getNodeProperties n)
         returnValue
-            | isJust property = (getNodeLabel n, getPropData (fromJust property)) : propV (Graph ns es) (k-1) p
-            | otherwise = propV (Graph ns es) k p
-
+            | isJust property = (getNodeLabel n, getPropData (fromJust property)) : propV (Graph ns es ps) (k-1) p
+            | otherwise = propV (Graph ns es ps) k p
 
 -- propE: PG × Nat × Prop → P(E × Val)
-propE :: Graph -> Natural -> Property -> [(Label, DataType)]
-propE  _                0 _ = []
-propE (Graph _      []) k p = []
-propE (Graph ns (e:es)) k p = returnValue
+-- Given a graph, a natural number "k" and a property name, returns a list containing the 
+-- first "k" edges that have the property given
+propE :: Graph -> Integer -> String -> [(Label, DataType)]
+propE  _                   0 _    = []
+propE (Graph _      [] _)  k prop = []
+propE (Graph ns (e:es) ps) k prop = returnValue
     where
-        property = findProperty (getPropName p) (getEdgeProperties e)
+        p = lC prop
+        property = findProperty p (getEdgeProperties e)
         returnValue
-            | isJust property = (getEdgeLabel e, getPropData (fromJust property)) : propV (Graph ns es) (k-1) p
-            | otherwise = propE (Graph ns es) k p
-            
+            | isJust property = (getEdgeLabel e, getPropData (fromJust property)) : propE (Graph ns es ps) (k-1) p
+            | otherwise = propE (Graph ns es ps) k p
+
 -- kHops: PG × Nat × V × Prop × (Val × Val → Bool) × Val → P(V × Lab × Val)
+-- Given a natural number, a node name, a property name, a predicate and a data type, a list of triplets
+-- in this format (node name, node label, data type) is returned such that every node in the list has
+-- the property given, and this property's datatype fulfills the predicate given as a parameter.
+kHops :: Graph -> Integer -> String -> String -> (DataType -> DataType -> Bool) -> DataType -> [(String, Label, DataType)]
+kHops (Graph ns es ps) k name p f val = removeDups valid
+    where
+        node  = fromJust $ findNode name ns
+        nodes = [fromJust $ findNode n ns | n <- kPath k name es [name]]
+        prop  = findProperty (lC p) $ getNodeProperties node
+        props = [(getNodeName n, getNodeLabel n, getData n) | n <- nodes, nodeContainsProperty n $ fromJust prop]
+        getData = getPropData . fromJust . findProperty (lC p) . getNodeProperties
+        valid
+            | isJust prop = filter (\(n,l,c) -> f c val) props
+            | otherwise   = []
+
 -- reachable: PG × V × V × Lab → Bool
+-- Given a graph, two nodes names and a label, returns true if there is path from the first node given 
+-- to the second node given where all the edges in the traversal have the label given, otherwise
+-- returns false
+reachable :: Graph -> String -> String -> Label -> Bool
+reachable (Graph ns es _) start target l = reachable' es target l [start] [start]
+    where
+        reachable' _  _  _  _ [] = False
+        reachable' es target l visited (n:ns)
+            | n == target || elem n ns = True
+            | otherwise = reachable' es target l newVisited $ ns ++ adjacentNodesWithSameLabel n l newVisited es
+            where newVisited = n:visited
+
+
+-- ########################################################################
+--                                  OUTPUT                                  
+-- ########################################################################
+-- Auxiliary function to make the code cleaner
+fullTemplate :: String -> String
+fullTemplate s = "Insert the name of the " ++ s ++  " file with the proper extension: "
+
+-- Auxiliary function to make the code cleaner
+jumpLine :: IO ()
+jumpLine = putStrLn ""
+
+-- Auxiliary function to show the options that the user has regarding the first
+-- part of the project
+optionsPart1 :: IO()
+optionsPart1 = do
+    putStrLn "Property graphs possible commands: "
+    putStrLn "   addEdge: Edge Node Node → Graph"
+    putStrLn "   defVprop: Node Property → Graph"
+    putStrLn "   defEprop: Edge Property → Graph"
+    putStrLn "   defVlabel: Node Label → Graph"
+    putStrLn "   defElabel: Node Label → Graph"
+    putStrLn "   showGraph: → Graph"
+
+-- Auxiliary function to show the options that the user has regarding the second
+-- part of the project
+optionsPart2 :: IO()
+optionsPart2 = do
+    putStrLn "Querying against property graphs possible commands: "
+    putStrLn "   sigma': Node or Edge → [String, DataType]"
+    putStrLn "   propV: Natural Property → [Node, DataType]"
+    putStrLn "   propE: Natural Property → [Edge, DataType]"
+    putStrLn "   kHops: Natural Node Property Function DataType → [Node, Label, DataType]"
+    putStrLn "   reachable: Node Node Label → Bool"
+
+-- Auxiliary function to guide the user through the process of the function "addEdge"
+showOptsAddEdge :: Graph -> IO()
+showOptsAddEdge graph = do
+    putStrLn "Insert an edge name: "
+    e <- getLine
+    jumpLine
+    putStrLn "Insert a node name: "
+    n1 <- getLine
+    jumpLine
+    putStrLn "Insert a node name: "
+    n2 <- getLine
+    jumpLine
+    let propGraph = addEdge graph (Edge e n1 n2 "" []) (Node n1 "" []) (Node n2 "" [])
+    showGraph propGraph
+
+-- Auxiliary function to guide the user through the process of the function "defVprop"
+showOptsDefVprop :: Graph -> IO ()
+showOptsDefVprop graph = do
+    putStrLn "Insert a node name: "
+    n <- getLine
+    jumpLine
+    putStrLn "Insert a property name: "
+    p <- getLine
+    jumpLine
+    putStrLn "Insert the type of the property (int, double, string, bool, date): "
+    dt <- getLine
+    jumpLine
+    putStrLn "Insert the value of the property: "
+    val <- getLine
+    jumpLine
+    when (lC dt == "int") $ do
+        let propGraph = defVprop graph n [Property p dt $ I (read val :: Int)]
+        showGraph propGraph
+    when (lC dt == "string") $ do
+        let propGraph = defVprop graph n [Property p dt $ S val]
+        showGraph propGraph
+    when (lC dt == "bool") $ do
+        when (lC val == "true" || val == "1") $ do
+            let propGraph = defVprop graph n [Property p dt $ B True]
+            showGraph propGraph
+        when (lC val == "false" || val == "0") $ do
+            let propGraph = defVprop graph n [Property p dt $ B False]
+            showGraph propGraph
+    when (lC dt == "double") $ do
+        let propGraph = defVprop graph n [Property p dt $ D (read val :: Double)]
+        showGraph propGraph
+    when (lC dt == "date") $ do
+        let propGraph = defVprop graph n [Property p dt (T val)]
+        showGraph propGraph
+
+-- Auxiliary function to guide the user through the process of the function "defEprop"
+showOptsDefEprop :: Graph -> IO ()
+showOptsDefEprop graph = do
+    putStrLn "Insert an edge name: "
+    e <- getLine
+    jumpLine
+    putStrLn "Insert a property name: "
+    p <- getLine
+    jumpLine
+    putStrLn "Insert the type of the property (int, double, string, bool, date): "
+    dt <- getLine
+    jumpLine
+    putStrLn "Insert the value of the property: "
+    val <- getLine
+    jumpLine
+    when (lC dt == "int") $ do
+        let propGraph = defEprop graph e [Property p dt $ I (read val :: Int)]
+        showGraph propGraph
+    when (lC dt == "string") $ do
+        let propGraph = defEprop graph e [Property p dt $ S val]
+        showGraph propGraph
+    when (lC dt == "bool") $ do
+        when (lC val == "true" || val == "1") $ do
+            let propGraph = defEprop graph e [Property p dt $ B True]
+            showGraph propGraph
+        when (lC val == "false" || val == "0") $ do
+            let propGraph = defEprop graph e [Property p dt $ B False]
+            showGraph propGraph
+    when (lC dt == "double") $ do
+        let propGraph = defEprop graph e [Property p dt $ D (read val :: Double)]
+        showGraph propGraph
+    when (lC dt == "date") $ do
+        let propGraph = defEprop graph e [Property p dt $ T val]
+        showGraph propGraph
+
+-- Auxiliary function to guide the user through the process of the function "defVlabel"
+showOptsDefVlabel :: Graph -> IO ()
+showOptsDefVlabel graph = do
+    putStrLn "Insert an edge name: "
+    n <- getLine
+    jumpLine
+    putStrLn "Insert the label: "
+    l <- getLine
+    jumpLine
+    let propGraph = defVlabel graph n l
+    if isLeft propGraph then showGraph (fromLeft (Graph [] [] []) propGraph)
+    else print (fromRight [] propGraph)
+
+-- Auxiliary function to guide the user through the process of the function "defElabel"
+showOptsDefElabel :: Graph -> IO ()
+showOptsDefElabel graph = do
+    putStrLn "Insert an edge name: "
+    e <- getLine
+    jumpLine
+    putStrLn "Insert the label: "
+    l <- getLine
+    jumpLine
+    let propGraph = defElabel graph e l
+    if isLeft propGraph then showGraph (fromLeft (Graph [] [] []) propGraph)
+    else print (fromRight [] propGraph)
+
+-- Auxiliary function to guide the user through the process of the function "sigma'"
+showOptsSigma :: Graph -> IO ()
+showOptsSigma graph = do
+    putStrLn "Insert a node or edge name: "
+    name <- getLine
+    jumpLine
+    print (sigma' graph name)
+
+-- Auxiliary function to guide the user through the process of the function "propV"
+showOptsPropV :: Graph -> IO ()
+showOptsPropV graph = do
+    putStrLn "Insert a number: "
+    k <- getLine
+    let kNUM = read k::Integer
+    jumpLine
+    putStrLn "Insert a property name: "
+    p <- getLine
+    jumpLine
+    print (propV graph kNUM p)
+
+-- Auxiliary function to guide the user through the process of the function "propE"
+showOptsPropE :: Graph -> IO ()
+showOptsPropE graph = do
+    putStrLn "Insert a number: "
+    k <- getLine
+    let kNUM = read k::Integer
+    jumpLine
+    putStrLn "Insert a property name: "
+    p <- getLine
+    jumpLine
+    print (propE graph kNUM p)
+
+-- Auxiliary function to guide the user through the process of the function "kHops"
+showOptskHops :: Graph -> IO ()
+showOptskHops graph = do
+    putStrLn "Insert a number: "
+    k <- getLine
+    let kNUM = read k::Integer
+    jumpLine
+    putStrLn "Insert a node name: "
+    n <- getLine
+    jumpLine
+    putStrLn "Insert a property name: "
+    p <- getLine
+    jumpLine
+    putStrLn "Insert a property type (int, double, string, bool, date): "
+    dt <- getLine
+    jumpLine
+    putStrLn "Insert a property value: "
+    val <- getLine
+    jumpLine
+    putStrLn "Insert a function (equal, not equal): "
+    func <- getLine
+    jumpLine
+    when (lC dt == "int") $
+        if lC func == "equal" then print (kHops graph kNUM n p (==) (I (read val :: Int)))
+        else print (kHops graph kNUM n p (/=) (I (read val :: Int)))
+    when (lC dt == "string") $
+        if lC func == "equal" then print (kHops graph kNUM n p (==) (S val))
+        else print (kHops graph kNUM n p (/=) (S val))
+    when (lC dt == "bool") $ do
+        when (lC val == "true" || val == "1") $
+            if lC func == "equal" then print (kHops graph kNUM n p (==) (B True))
+            else print (kHops graph kNUM n p (/=) (B True))
+        when (lC val == "false" || val == "0") $
+            if lC func == "equal" then print (kHops graph kNUM n p (==) (B False))
+            else print (kHops graph kNUM n p (/=) (B False))
+    when (lC dt == "double") $
+        if lC func == "equal" then print (kHops graph kNUM n p (==) (D (read val :: Double)))
+        else print (kHops graph kNUM n p (/=) (D (read val :: Double)))
+    when (lC dt == "date") $
+        if lC func == "equal" then print (kHops graph kNUM n p (==) (T val))
+        else print (kHops graph kNUM n p (/=) (T val))
+
+-- Auxiliary function to guide the user through the process of the function "reachable"
+showOptsReachable :: Graph -> IO ()
+showOptsReachable graph = do
+    putStrLn "Insert a node name: "
+    n1 <- getLine
+    jumpLine
+    putStrLn "Insert a node name: "
+    n2 <- getLine
+    jumpLine
+    putStrLn "Insert the label: "
+    l <- getLine
+    jumpLine
+    print (reachable graph n1 n2 l)
+
 
 -- ########################################################################
 --                                   MAIN                                  
 -- ########################################################################
+main :: IO ()
 main = do
-    {-
-    propFileName   <- getLine 
-    rhoFileName    <- getLine
-    lambdaFileName <- getLine
-    sigmaFileName  <- getLine -}
+    jumpLine
+    putStrLn "######################## LLENGUATGES DE PROGRAMACIÓ ########################\n"
+    optionsPart1
+    jumpLine
+    optionsPart2
+    jumpLine
 
-    propFile       <- readFile "propFile.pg" --readFile propFileName
-    rhoFile        <- readFile "rhoFile.pg" --readFile rhoFileName
-    lambdaFile     <- readFile "lambdaFile.pg" --readFile lambdaFileName
-    sigmaFile      <- readFile "sigmaFile.pg" --readFile sigmaFileName
+    putStrLn $ fullTemplate "prop"
+    propFile   <- getLine
+    jumpLine
+
+    putStrLn $ fullTemplate "rho"
+    rhoFile    <- getLine
+    jumpLine
+
+    putStrLn $ fullTemplate "lambda"
+    lambdaFile <- getLine
+    jumpLine
+
+    putStrLn $ fullTemplate "sigma"
+    sigmaFile  <- getLine
+    jumpLine
+    putStrLn "############################################################################\n"
+
 
     let propGraph = populate propFile rhoFile lambdaFile sigmaFile
-    {-let graph2 = defVprop propGraph (Node "i6" "Image" []) (Property "since" "String" (T "13-4-98"))
-    let graph3 = defEprop graph2 (Edge "f4" "" "" "" []) (Property "since" "String" (T "13-4-1235"))
-    let graph4 = defVlabel graph3 (Node "n1" "" []) "cipote"
-    let graph5 = defElabel (fromLeft (Graph [] []) graph4) (Edge "ed4" "" "" "" []) "pechugo"-}
 
-    let cositas = propV propGraph 5 (Property "gender" "String" (S ""))
-    print cositas
+    putStrLn "Graph populated! Insert one of the commands previously mentioned: "
+    command <- getLine
+    jumpLine
+
+    -- Part 1
+    Control.Monad.when (command == "addEdge") (showOptsAddEdge propGraph)
+    Control.Monad.when (command == "defVprop") (showOptsDefVprop propGraph)
+    Control.Monad.when (command == "defEprop") (showOptsDefEprop propGraph)
+    Control.Monad.when (command == "defVlabel") (showOptsDefVlabel propGraph)
+    Control.Monad.when (command == "defElabel") (showOptsDefElabel propGraph)
+    Control.Monad.when (command == "showGraph") (showGraph propGraph)
+
+    -- Part 2
+    Control.Monad.when (command == "sigma'") (showOptsSigma propGraph)
+    Control.Monad.when (command == "propV") (showOptsPropV propGraph)
+    Control.Monad.when (command == "propE") (showOptsPropE propGraph)
+    Control.Monad.when (command == "kHops") (showOptskHops propGraph)
+    Control.Monad.when (command == "reachable") (showOptsReachable propGraph)
+
+    jumpLine
