@@ -190,7 +190,7 @@ printList (x:xs) = do
 -- Converts the string to lower case. This is done to avoid errors when reading
 -- the input files which contain the properties, because there can be errors
 lC :: String -> String
-lC word = [toLower c | c <- word]
+lC = map toLower
 
 -- Returns the same list without the first line
 nextLine :: [String] -> [String]
