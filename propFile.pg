@@ -1,14 +1,14 @@
 location    String
-since  Date
+since Date
 date    Date
-nlikes    Int
+nLikes    Int
 content    String
 firstName    String
 lastName    String
 gender    String
 homeTown    String
 homeCountry    String
-birthday    Date
+birthDay    Date
 workPlace    String
 workPosition    String
 city    String

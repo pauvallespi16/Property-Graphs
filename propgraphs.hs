@@ -6,10 +6,10 @@ import Data.Maybe ( fromJust, isJust, isNothing )
 import Data.Either ( fromLeft, isLeft, fromRight )
 import Data.Text.Internal.Unsafe (inlinePerformIO)
 {-
-######################### LLENGUATGES DE PROGRAMACIÓ #########################
-                            · Grup:      11                               
-                            · Alumne:    Pau Vallespí                       
-                            · Professor: Jordi Petit                       
+########################## LLENGUATGES DE PROGRAMACIÓ ########################
+                            · Group:      11                               
+                            · Student:    Pau Vallespí                       
+                            · Professor:  Jordi Petit                       
 ##############################################################################
 
 
@@ -92,9 +92,10 @@ E: is a finite set of edges such that V and E have no elements in common.
     when being asked for input
 
 13. When being asked for a function (in the case of kHops), the user will only have
-    two options: equal and not equal. That is because from a console it is very
+    limited options: ==, /=, >=, >, <=, <. That is because from a console it is very
     difficult to define a function, and therefore it would make the process harder
-    for the user
+    for the user. If the function inserted is none of them, then the default function
+    will be \x y -> x /= S "".
 
 14. Although the functions defVprop and defEprop have the functionalities to add
     multiple properties, the user only has the possibility to add one at a time.
@@ -113,7 +114,7 @@ data Node     = Node String Label [Property]
 data Edge     = Edge String String String Label [Property]
 data Property = Property String String DataType
 data DataType = I Int | D Double | S String | B Bool | T Date | U String
-    deriving Eq
+    deriving (Eq, Ord) -- to be able to compare them
 type Date     = String
 type Label    = String
 
@@ -436,12 +437,11 @@ findAllAdjacents :: [String] -> [Edge] -> [String]
 findAllAdjacents [] _ = []
 findAllAdjacents (n:ns) es = adjacentNodes n es ++ findAllAdjacents ns es
 
--- The string represents a node name, the function returns true if there exists 
--- a k-path from the node 
-kPath :: Integer -> String -> [Edge] -> [String] -> [String]
-kPath k n es nodes
-    | k == 0    = nodes
-    | otherwise = kPath (k-1) n es $ findAllAdjacents nodes es
+-- The function returns the nodes that the nodes in the list can reach within k steps
+kPath :: Integer -> [Edge] -> [String] -> [String]
+kPath 0 _  nodes = nodes
+kPath k es nodes = kPath (k-1) es $ findAllAdjacents nodes es
+
 
 -- ########################################################################
 --                              INTERPRETING FILES                       
@@ -493,6 +493,7 @@ interpretSigmaFile (Graph ns es ps) line = interpretSigmaFile finalGraph (nextLi
         finalGraph     = includeProperties name updatedProp $ Graph ns es ps
         lineWords      = words $ head line
 
+
 -- ########################################################################
 --                          PROPERTY GRAPHS IN HASKELL
 -- ########################################################################
@@ -535,10 +536,8 @@ defVprop' n ps nodes (Property p t dt) = newNodes
 -- property doesn't exist or the list of properties is empty the same graph is returned
 defVprop :: Graph -> String -> [Property] -> Graph
 defVprop (Graph nodes edges ps) n [] = Graph nodes edges ps
-defVprop (Graph nodes edges ps) n [Property p t dt] = Graph (defVprop' n ps nodes prop) edges ps
-    where prop = Property p t dt
 defVprop (Graph nodes edges ps) n ((Property p t dt):props) = defVprop (Graph newNodes edges ps) n props
-    where 
+    where
         newNodes = defVprop' n ps nodes prop
         prop = Property p t dt
 
@@ -559,13 +558,11 @@ defEprop' e ps edges (Property p t dt)= newEdges
 -- property doesn't exist or the list of properties is empty the same graph is returned
 defEprop :: Graph -> String -> [Property] -> Graph
 defEprop (Graph nodes edges ps) e [] = Graph nodes edges ps
-defEprop (Graph nodes edges ps) e [Property p t dt] = Graph nodes (defEprop' e ps edges prop) ps
-    where prop = Property p t dt
-defEprop (Graph nodes edges ps) e (Property p t dt:props) = defEprop (Graph nodes newEdges ps) e props 
+defEprop (Graph nodes edges ps) e (Property p t dt:props) = defEprop (Graph nodes newEdges ps) e props
     where
         newEdges = defEprop' e ps edges prop
         prop = Property p t dt
-        
+
 -- defVlabel: PG × V × Lab → PG ∪ Error
 -- Given a graph, a node name and a label, if the node already contains a label,
 -- an error message is returned, otherwise the label is included to the node
@@ -660,12 +657,12 @@ kHops :: Graph -> Integer -> String -> String -> (DataType -> DataType -> Bool) 
 kHops (Graph ns es ps) k name p f val = removeDups valid
     where
         node  = fromJust $ findNode name ns
-        nodes = [fromJust $ findNode n ns | n <- kPath k name es [name]]
+        nodes = [fromJust $ findNode n ns | n <- kPath k es [name]]
         prop  = findProperty (lC p) $ getNodeProperties node
         props = [(getNodeName n, getNodeLabel n, getData n) | n <- nodes, nodeContainsProperty n $ fromJust prop]
         getData = getPropData . fromJust . findProperty (lC p) . getNodeProperties
         valid
-            | isJust prop = filter (\(n,l,c) -> f c val) props
+            | isJust prop = filter (\(n,l,dt) -> f dt val) props
             | otherwise   = []
 
 -- reachable: PG × V × V × Lab → Bool
@@ -683,7 +680,7 @@ reachable (Graph ns es _) start target l = reachable' es target l [start] [start
 
 
 -- ########################################################################
---                                  OUTPUT                                  
+--                              IN/OUT FUNCTIONS                                  
 -- ########################################################################
 -- Auxiliary function to make the code cleaner
 fullTemplate :: String -> String
@@ -722,14 +719,23 @@ showOptsAddEdge graph = do
     putStrLn "Insert an edge name: "
     e <- getLine
     jumpLine
+    putStrLn "Insert a label for the edge: "
+    l <- getLine
+    jumpLine
     putStrLn "Insert a node name: "
     n1 <- getLine
     jumpLine
     putStrLn "Insert a node name: "
     n2 <- getLine
     jumpLine
-    let propGraph = addEdge graph (Edge e n1 n2 "" []) (Node n1 "" []) (Node n2 "" [])
+    let propGraph = addEdge graph (Edge e n1 n2 l []) (Node n1 "" []) (Node n2 "" [])
     showGraph propGraph
+
+-- Auxiliary function to translate a string to a boolean data type
+showOptsBool :: String -> DataType
+showOptsBool s
+    | lC s == "true" || lC s == "1" = B True
+    | otherwise = B False
 
 -- Auxiliary function to guide the user through the process of the function "defVprop"
 showOptsDefVprop :: Graph -> IO ()
@@ -753,12 +759,8 @@ showOptsDefVprop graph = do
         let propGraph = defVprop graph n [Property p dt $ S val]
         showGraph propGraph
     when (lC dt == "bool") $ do
-        when (lC val == "true" || val == "1") $ do
-            let propGraph = defVprop graph n [Property p dt $ B True]
-            showGraph propGraph
-        when (lC val == "false" || val == "0") $ do
-            let propGraph = defVprop graph n [Property p dt $ B False]
-            showGraph propGraph
+        let propGraph = defVprop graph n [Property p dt (showOptsBool val)]
+        showGraph propGraph
     when (lC dt == "double") $ do
         let propGraph = defVprop graph n [Property p dt $ D (read val :: Double)]
         showGraph propGraph
@@ -788,12 +790,8 @@ showOptsDefEprop graph = do
         let propGraph = defEprop graph e [Property p dt $ S val]
         showGraph propGraph
     when (lC dt == "bool") $ do
-        when (lC val == "true" || val == "1") $ do
-            let propGraph = defEprop graph e [Property p dt $ B True]
-            showGraph propGraph
-        when (lC val == "false" || val == "0") $ do
-            let propGraph = defEprop graph e [Property p dt $ B False]
-            showGraph propGraph
+        let propGraph = defEprop graph e [Property p dt (showOptsBool val)]
+        showGraph propGraph
     when (lC dt == "double") $ do
         let propGraph = defEprop graph e [Property p dt $ D (read val :: Double)]
         showGraph propGraph
@@ -811,8 +809,8 @@ showOptsDefVlabel graph = do
     l <- getLine
     jumpLine
     let propGraph = defVlabel graph n l
-    if isLeft propGraph then showGraph (fromLeft (Graph [] [] []) propGraph)
-    else print (fromRight [] propGraph)
+    if isLeft propGraph then showGraph $ fromLeft (Graph [] [] []) propGraph
+    else print $ fromRight [] propGraph
 
 -- Auxiliary function to guide the user through the process of the function "defElabel"
 showOptsDefElabel :: Graph -> IO ()
@@ -824,8 +822,8 @@ showOptsDefElabel graph = do
     l <- getLine
     jumpLine
     let propGraph = defElabel graph e l
-    if isLeft propGraph then showGraph (fromLeft (Graph [] [] []) propGraph)
-    else print (fromRight [] propGraph)
+    if isLeft propGraph then showGraph $ fromLeft (Graph [] [] []) propGraph
+    else print $ fromRight [] propGraph
 
 -- Auxiliary function to guide the user through the process of the function "sigma'"
 showOptsSigma :: Graph -> IO ()
@@ -833,7 +831,7 @@ showOptsSigma graph = do
     putStrLn "Insert a node or edge name: "
     name <- getLine
     jumpLine
-    print (sigma' graph name)
+    print $ sigma' graph name
 
 -- Auxiliary function to guide the user through the process of the function "propV"
 showOptsPropV :: Graph -> IO ()
@@ -845,7 +843,7 @@ showOptsPropV graph = do
     putStrLn "Insert a property name: "
     p <- getLine
     jumpLine
-    print (propV graph kNUM p)
+    print $ propV graph kNUM p
 
 -- Auxiliary function to guide the user through the process of the function "propE"
 showOptsPropE :: Graph -> IO ()
@@ -857,7 +855,18 @@ showOptsPropE graph = do
     putStrLn "Insert a property name: "
     p <- getLine
     jumpLine
-    print (propE graph kNUM p)
+    print $ propE graph kNUM p
+
+-- Auxiliary function that returns a function depending on the user's input.
+showOptsKHops' :: String -> (DataType -> DataType -> Bool)
+showOptsKHops' s
+  | s == "==" = (==)
+  | s == "/=" = (/=)
+  | s == ">=" = (>=)
+  | s == ">"  = (>)
+  | s == "<=" = (<=)
+  | s == "<"  = (<)
+  | otherwise = \x y -> x /= S ""
 
 -- Auxiliary function to guide the user through the process of the function "kHops"
 showOptskHops :: Graph -> IO ()
@@ -878,28 +887,19 @@ showOptskHops graph = do
     putStrLn "Insert a property value: "
     val <- getLine
     jumpLine
-    putStrLn "Insert a function (equal, not equal): "
+    putStrLn "Insert a function (==, /=, >=, >, <=, <): "
     func <- getLine
     jumpLine
     when (lC dt == "int") $
-        if lC func == "equal" then print (kHops graph kNUM n p (==) (I (read val :: Int)))
-        else print (kHops graph kNUM n p (/=) (I (read val :: Int)))
+        print $ kHops graph kNUM n p (showOptsKHops' func) $ I (read val :: Int)
     when (lC dt == "string") $
-        if lC func == "equal" then print (kHops graph kNUM n p (==) (S val))
-        else print (kHops graph kNUM n p (/=) (S val))
-    when (lC dt == "bool") $ do
-        when (lC val == "true" || val == "1") $
-            if lC func == "equal" then print (kHops graph kNUM n p (==) (B True))
-            else print (kHops graph kNUM n p (/=) (B True))
-        when (lC val == "false" || val == "0") $
-            if lC func == "equal" then print (kHops graph kNUM n p (==) (B False))
-            else print (kHops graph kNUM n p (/=) (B False))
+        print $ kHops graph kNUM n p (showOptsKHops' func) (S val)
+    when (lC dt == "bool") $
+        print $ kHops graph kNUM n p (showOptsKHops' func) $ showOptsBool val
     when (lC dt == "double") $
-        if lC func == "equal" then print (kHops graph kNUM n p (==) (D (read val :: Double)))
-        else print (kHops graph kNUM n p (/=) (D (read val :: Double)))
+        print $ kHops graph kNUM n p (showOptsKHops' func) $ D (read val :: Double)
     when (lC dt == "date") $
-        if lC func == "equal" then print (kHops graph kNUM n p (==) (T val))
-        else print (kHops graph kNUM n p (/=) (T val))
+        print $ kHops graph kNUM n p (showOptsKHops' func) $ T val
 
 -- Auxiliary function to guide the user through the process of the function "reachable"
 showOptsReachable :: Graph -> IO ()
@@ -913,7 +913,7 @@ showOptsReachable graph = do
     putStrLn "Insert the label: "
     l <- getLine
     jumpLine
-    print (reachable graph n1 n2 l)
+    print $ reachable graph n1 n2 l
 
 
 -- ########################################################################
@@ -922,7 +922,9 @@ showOptsReachable graph = do
 main :: IO ()
 main = do
     jumpLine
-    putStrLn "######################## LLENGUATGES DE PROGRAMACIÓ ########################\n"
+    putStrLn "######################## LLENGUATGES DE PROGRAMACIÓ ########################"
+    putStrLn "                                                        Author: Pau Vallespí"
+    jumpLine
     optionsPart1
     jumpLine
     optionsPart2
@@ -943,8 +945,8 @@ main = do
     putStrLn $ fullTemplate "sigma"
     sigmaFile  <- getLine
     jumpLine
-    putStrLn "############################################################################\n"
-
+    putStrLn "############################################################################"
+    jumpLine
 
     let propGraph = populate propFile rhoFile lambdaFile sigmaFile
 
@@ -953,18 +955,18 @@ main = do
     jumpLine
 
     -- Part 1
-    Control.Monad.when (command == "addEdge") (showOptsAddEdge propGraph)
-    Control.Monad.when (command == "defVprop") (showOptsDefVprop propGraph)
-    Control.Monad.when (command == "defEprop") (showOptsDefEprop propGraph)
-    Control.Monad.when (command == "defVlabel") (showOptsDefVlabel propGraph)
-    Control.Monad.when (command == "defElabel") (showOptsDefElabel propGraph)
-    Control.Monad.when (command == "showGraph") (showGraph propGraph)
+    when (command == "addEdge") (showOptsAddEdge propGraph)
+    when (command == "defVprop") (showOptsDefVprop propGraph)
+    when (command == "defEprop") (showOptsDefEprop propGraph)
+    when (command == "defVlabel") (showOptsDefVlabel propGraph)
+    when (command == "defElabel") (showOptsDefElabel propGraph)
+    when (command == "showGraph") (showGraph propGraph)
 
     -- Part 2
-    Control.Monad.when (command == "sigma'") (showOptsSigma propGraph)
-    Control.Monad.when (command == "propV") (showOptsPropV propGraph)
-    Control.Monad.when (command == "propE") (showOptsPropE propGraph)
-    Control.Monad.when (command == "kHops") (showOptskHops propGraph)
-    Control.Monad.when (command == "reachable") (showOptsReachable propGraph)
+    when (command == "sigma'") (showOptsSigma propGraph)
+    when (command == "propV") (showOptsPropV propGraph)
+    when (command == "propE") (showOptsPropE propGraph)
+    when (command == "kHops") (showOptskHops propGraph)
+    when (command == "reachable") (showOptsReachable propGraph)
 
     jumpLine
