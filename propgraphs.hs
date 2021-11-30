@@ -6,10 +6,8 @@ import Data.Maybe ( fromJust, isJust, isNothing )
 import Data.Either ( fromLeft, isLeft, fromRight )
 import Data.Text.Internal.Unsafe (inlinePerformIO)
 {-
-########################## LLENGUATGES DE PROGRAMACIÓ ########################
-                            · Group:      11                               
-                            · Student:    Pau Vallespí                       
-                            · Professor:  Jordi Petit                       
+########################## LLENGUATGES DE PROGRAMACIÓ ########################                          
+                            Author:    Pau Vallespí                          
 ##############################################################################
 
 
